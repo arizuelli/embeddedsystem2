@@ -1,89 +1,80 @@
+// Distributed with a free-will license.
+// Use it any way you want, profit or free, provided it fits in the licenses of its associated works.
+// TCS34725
+// This code is designed to work with the TCS34725_I2CS I2C Mini Module available from ControlEverything.com.
+// https://www.controleverything.com/products
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h> // Per la funzione sleep
-#include <fcntl.h>
 #include <linux/i2c-dev.h>
+#include <sys/ioctl.h>
+#include <fcntl.h>
 
-#define I2C_BUS "/dev/i2c-1"
-#define TCS34725_ADDR 0x29
-
-#define TCS34725_ENABLE_REG 0x80
-#define TCS34725_ATIME_REG 0x81
-#define TCS34725_WTIME_REG 0x83
-#define TCS34725_CONTROL_REG 0x8F
-#define TCS34725_DATA_REG 0x94
-
-int main() 
+void main()
 {
-    int file;
-    char *bus = I2C_BUS;
-    if ((file = open(bus, O_RDWR)) < 0) 
-    {
-        perror("Failed to open the bus");
-        exit(1);
-    }
-    
-    if (ioctl(file, I2C_SLAVE, TCS34725_ADDR) < 0)
-    {
-        perror("Failed to acquire bus access and/or talk to slave");
-        exit(1);
-    }
-    
-    // Configurazione del sensore
-    char config[2];
-    config[0] = TCS34725_ENABLE_REG;
-    config[1] = 0x03; // Power ON, RGBC enable, wait time disable
-    write(file, config, 2);
-    
-    config[0] = TCS34725_ATIME_REG;
-    config[1] = 0x00; // Atime = 700 ms
-    write(file, config, 2);
-    
-    config[0] = TCS34725_WTIME_REG;
-    config[1] = 0xFF; // WTIME : 2.4ms
-    write(file, config, 2);
-    
-    config[0] = TCS34725_CONTROL_REG;
-    config[1] = 0x00; // AGAIN = 1x
-    write(file, config, 2);
-    
-    sleep(1); // Attendiamo 1 secondo prima di leggere i dati
-    
-    // Lettura dei dati dal sensore
-    char reg = TCS34725_DATA_REG;
-    if(write(file, &reg, 1) != 1)
-    {
-        perror("Failed to write to the i2c bus");
-        exit(1);
-    }
-    
-    char data[8];
-    if(read(file, data, 8) != 8)
-    {
-        perror("Failed to read from the i2c bus");
-        exit(1);
-    }
-    
-    // Convertiamo i dati
-    int cData = (data[1] << 8) | data[0];
-    int red = (data[3] << 8) | data[2];
-    int green = (data[5] << 8) | data[4];
-    int blue = (data[7] << 8) | data[6];
-    
-    // Calcoliamo la luminosità
-    float luminance = (-0.32466) * red + (1.57837) * green + (-0.73191) * blue;
-    luminance = luminance < 0 ? 0 : luminance; // Assicuriamoci che la luminosità non sia negativa
-    
-    // Stampiamo i dati
-    printf("Red color luminance: %d lux\n", red);
-    printf("Green color luminance: %d lux\n", green);
-    printf("Blue color luminance: %d lux\n", blue);
-    printf("IR luminance: %d lux\n", cData);
-    printf("Ambient Light Luminance: %.2f lux\n", luminance);
-    
-    // Chiudiamo il file I2C
-    close(file);
-    
-    return 0;
-}
+	// Create I2C bus
+	int file;
+	char *bus = "/dev/i2c-1";
+	if ((file = open(bus, O_RDWR)) < 0)
+	{
+		printf("Failed to open the bus. \n");
+		exit(1);
+	}
+	// Get I2C device, TCS34725 I2C address is 0x29(41)
+	ioctl(file, I2C_SLAVE, 0x29);
 
+	// Select enable register(0x80)
+	// Power ON, RGBC enable, wait time disable(0x03)
+	char config[2] = {0};
+	config[0] = 0x80;
+	config[1] = 0x03;
+	write(file, config, 2);
+	// Select ALS time register(0x81)
+	// Atime = 700 ms(0x00)
+	config[0] = 0x81;
+	config[1] = 0x00;
+	write(file, config, 2);
+	// Select Wait Time register(0x83)
+	// WTIME : 2.4ms(0xFF)
+	config[0] = 0x83;
+	config[1] = 0xFF;
+	write(file, config, 2);
+	// Select control register(0x8F)
+	// AGAIN = 1x(0x00)
+	config[0] = 0x8F;
+	config[1] = 0x00;
+	write(file, config, 2);
+	sleep(1);
+
+	// Read 8 bytes of data from register(0x94)
+	// cData lsb, cData msb, red lsb, red msb, green lsb, green msb, blue lsb, blue msb
+	char reg[1] = {0x94};
+	write(file, reg, 1);
+	char data[8] = {0};
+	if(read(file, data, 8) != 8)
+	{
+		printf("Erorr : Input/output Erorr \n");
+	}
+	else
+	{
+		// Convert the data
+		int cData = (data[1] * 256 + data[0]);
+		int red = (data[3] * 256 + data[2]);
+		int green = (data[5] * 256 + data[4]);
+		int blue = (data[7] * 256 + data[6]);
+
+		// Calculate luminance
+		float luminance = (-0.32466) * (red) + (1.57837) * (green) + (-0.73191) * (blue);
+		if(luminance < 0)
+		{
+			luminance = 0;
+		}
+
+		// Output data to screen
+		printf("Red color luminance : %d lux \n", red);
+		printf("Green color luminance : %d lux \n", green);
+		printf("Blue color luminance : %d lux \n", blue);
+		printf("IR  luminance : %d lux \n", cData);
+		printf("Ambient Light Luminance : %.2f lux \n", luminance);
+	}
+}
